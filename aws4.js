@@ -1,18 +1,26 @@
 var aws4 = exports,
-    url = require('url'),
-    querystring = require('querystring'),
-    crypto = require('crypto'),
+    url = {parse: require('url-parse')},
+    querystring = require('querystringify'),
     lru = require('./lru'),
-    credentialsCache = lru(1000)
+    credentialsCache = lru(1000);
+const crypto = require('browserify-cryptojs');
+window.CryptoJS = crypto;
+require("browserify-cryptojs/components/sha256");
+require("browserify-cryptojs/components/hmac");
+const hex = crypto.enc.Hex;
 
 // http://docs.amazonwebservices.com/general/latest/gr/signature-version-4.html
 
 function hmac(key, string, encoding) {
-  return crypto.createHmac('sha256', key).update(string, 'utf8').digest(encoding)
+  let hmac = CryptoJS.HmacSHA256(string, key);
+  if(encoding){
+    return hmac.toString(encoding);
+  }
+  return hmac;
 }
 
 function hash(string, encoding) {
-  return crypto.createHash('sha256').update(string, 'utf8').digest(encoding)
+  return crypto.SHA256(string).toString(encoding);
 }
 
 // This function assumes the string has already been percent encoded
@@ -122,7 +130,7 @@ RequestSigner.prototype.prepareRequest = function() {
         headers['X-Amz-Security-Token'] = this.credentials.sessionToken
 
       if (this.service === 's3' && !headers['X-Amz-Content-Sha256'] && !headers['x-amz-content-sha256'])
-        headers['X-Amz-Content-Sha256'] = hash(this.request.body || '', 'hex')
+        headers['X-Amz-Content-Sha256'] = hash(this.request.body || '', hex)
 
       if (headers['X-Amz-Date'] || headers['x-amz-date'])
         this.datetime = headers['X-Amz-Date'] || headers['x-amz-date']
@@ -152,7 +160,7 @@ RequestSigner.prototype.sign = function() {
 RequestSigner.prototype.getDateTime = function() {
   if (!this.datetime) {
     var headers = this.request.headers,
-      date = new Date(headers.Date || headers.date || new Date)
+      date = aws4.TEST_DATETIME || new Date(headers.Date || headers.date || new Date)
 
     this.datetime = date.toISOString().replace(/[:\-]|\.\d{3}/g, '')
 
@@ -185,7 +193,7 @@ RequestSigner.prototype.signature = function() {
     kCredentials = hmac(kService, 'aws4_request')
     credentialsCache.set(cacheKey, kCredentials)
   }
-  return hmac(kCredentials, this.stringToSign(), 'hex')
+  return hmac(kCredentials, this.stringToSign(), hex)
 }
 
 RequestSigner.prototype.stringToSign = function() {
@@ -193,7 +201,7 @@ RequestSigner.prototype.stringToSign = function() {
     'AWS4-HMAC-SHA256',
     this.getDateTime(),
     this.credentialString(),
-    hash(this.canonicalString(), 'hex'),
+    hash(this.canonicalString(), hex),
   ].join('\n')
 }
 
@@ -216,7 +224,7 @@ RequestSigner.prototype.canonicalString = function() {
     bodyHash = ''
   } else {
     bodyHash = headers['X-Amz-Content-Sha256'] || headers['x-amz-content-sha256'] ||
-      hash(this.request.body || '', 'hex')
+      hash(this.request.body || '', hex)
   }
 
   if (query) {
